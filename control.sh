@@ -36,10 +36,13 @@ case "$1" in
       echo "  - Celery Worker is already running"
     fi
 
-    # 3. Start Frontend
-    if ! pgrep -f "vite --host 0.0.0.0 --port 5174" > /dev/null; then
+    # 3. Start Frontend (production preview daemon)
+    if ! pgrep -f "port 5174" > /dev/null; then
       cd "$FRONTEND_DIR"
-      setsid nohup ./node_modules/.bin/vite --host 0.0.0.0 --port 5174 < /dev/null > "$FRONTEND_LOG" 2>&1 &
+      if [ ! -d "dist" ]; then
+        npm run build
+      fi
+      setsid nohup ./node_modules/.bin/vite preview --host 0.0.0.0 --port 5174 < /dev/null > "$FRONTEND_LOG" 2>&1 &
       echo $! > "$FRONTEND_PID_FILE"
       echo "  - React Vite Frontend started on port 5174"
     else
@@ -51,14 +54,14 @@ case "$1" in
     echo "Stopping WhatsApp CRM services..."
     pkill -f "manage.py runserver 0.0.0.0:8000" || true
     pkill -f "celery -A whatsapp_crm worker" || true
-    pkill -f "vite --host 0.0.0.0 --port 5174" || true
+    pkill -f "port 5174" || true
     rm -f "$BACKEND_PID_FILE" "$CELERY_PID_FILE" "$FRONTEND_PID_FILE"
     echo "All WhatsApp CRM processes stopped."
     ;;
 
   restart)
     $0 stop
-    sleep 1
+    sleep 2
     $0 start
     ;;
 
@@ -69,7 +72,7 @@ case "$1" in
     echo -n "  Worker (Celery):        "
     pgrep -f "celery -A whatsapp_crm worker" > /dev/null && echo "RUNNING" || echo "STOPPED"
     echo -n "  Frontend (Vite 5174):   "
-    pgrep -f "vite --host 0.0.0.0 --port 5174" > /dev/null && echo "RUNNING" || echo "STOPPED"
+    pgrep -f "port 5174" > /dev/null && echo "RUNNING" || echo "STOPPED"
     ;;
 
   logs)
