@@ -37,7 +37,7 @@ export default function AnalyticsView() {
   if (loading && !data) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#0c1317] text-gray-400 text-xs">
-        <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading CRM SLA & Analytics...
+        <RefreshCw className="w-5 h-5 animate-spin mr-2 text-teal-400" /> Loading CRM SLA & Analytics...
       </div>
     );
   }
@@ -48,14 +48,14 @@ export default function AnalyticsView() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0c1317] overflow-y-auto text-gray-200">
-      {/* Top Header */}
-      <div className="h-16 px-6 border-b border-[#222e35] flex items-center justify-between bg-[#111b21] shrink-0">
+      {/* Top Header - Responsive */}
+      <div className="p-4 sm:h-16 sm:px-6 border-b border-[#222e35] flex items-center justify-between bg-[#111b21] shrink-0">
         <div>
-          <h1 className="text-lg font-bold text-gray-100 flex items-center gap-2">
+          <h1 className="text-base sm:text-lg font-bold text-gray-100 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-teal-400" />
             Analytics & Team SLA Dashboard
           </h1>
-          <p className="text-xs text-gray-400">Real-time throughput, Meta delivery receipts, and OpenMausBot Copilot resolution rates</p>
+          <p className="text-[11px] sm:text-xs text-gray-400">Real-time throughput, Meta delivery receipts, and OpenMausBot Copilot resolution rates</p>
         </div>
 
         <button 
@@ -67,94 +67,94 @@ export default function AnalyticsView() {
         </button>
       </div>
 
-      <div className="p-6 space-y-6 max-w-7xl mx-auto w-full">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-7xl mx-auto w-full">
         {/* Top 4 SLA Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-[#111b21] p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-[#111b21] p-4 sm:p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-400">First Response Time (FRT)</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-gray-400">First Response Time</span>
               <Clock className="w-4 h-4 text-teal-400" />
             </div>
-            <div className="text-3xl font-extrabold text-teal-400 mt-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-teal-400 mt-2">
               {data?.avg_frt_seconds}s
             </div>
-            <div className="flex items-center gap-1 text-[11px] text-emerald-400 mt-2 font-medium">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 84% faster with OpenMausBot Copilot
+            <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-emerald-400 mt-2 font-medium">
+              <ArrowUpRight className="w-3.5 h-3.5" /> 84% faster with Copilot
             </div>
           </div>
 
-          <div className="bg-[#111b21] p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
+          <div className="bg-[#111b21] p-4 sm:p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-400">Resolution Rate</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-gray-400">Resolution Rate</span>
               <CheckCircle className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="text-3xl font-extrabold text-emerald-400 mt-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-emerald-400 mt-2">
               {data?.resolution_rate_percent}%
             </div>
-            <div className="text-[11px] text-gray-400 mt-2">
-              {data?.resolved_conversations} of {data?.total_conversations} conversations resolved
+            <div className="text-[10px] sm:text-[11px] text-gray-400 mt-2">
+              {data?.resolved_conversations} of {data?.total_conversations} resolved
             </div>
           </div>
 
-          <div className="bg-[#111b21] p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
+          <div className="bg-[#111b21] p-4 sm:p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-400">WhatsApp Delivery Rate</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-gray-400">WhatsApp Delivery</span>
               <Send className="w-4 h-4 text-blue-400" />
             </div>
-            <div className="text-3xl font-extrabold text-blue-400 mt-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-blue-400 mt-2">
               {data?.delivery_rate_percent}%
             </div>
-            <div className="text-[11px] text-gray-400 mt-2">
-              {data?.messages_delivered} delivered out of {data?.messages_sent} sent
+            <div className="text-[10px] sm:text-[11px] text-gray-400 mt-2">
+              {data?.messages_delivered} delivered
             </div>
           </div>
 
-          <div className="bg-[#111b21] p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
+          <div className="bg-[#111b21] p-4 sm:p-5 rounded-2xl border border-[#222e35] relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-gray-400">Message Read Rate</span>
+              <span className="text-[11px] sm:text-xs font-semibold text-gray-400">Message Read Rate</span>
               <Eye className="w-4 h-4 text-purple-400" />
             </div>
-            <div className="text-3xl font-extrabold text-purple-400 mt-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-purple-400 mt-2">
               {data?.read_rate_percent}%
             </div>
-            <div className="text-[11px] text-gray-400 mt-2">
-              Confirmed blue double-tick receipts
+            <div className="text-[10px] sm:text-[11px] text-gray-400 mt-2">
+              Blue double-tick receipts
             </div>
           </div>
         </div>
 
         {/* 7-Day Message Throughput Chart */}
-        <div className="bg-[#111b21] p-6 rounded-2xl border border-[#222e35]">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-[#111b21] p-4 sm:p-6 rounded-2xl border border-[#222e35]">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
             <div>
               <h3 className="text-sm font-bold text-gray-100 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-teal-400" />
                 7-Day Inbound vs. Outbound Message Throughput
               </h3>
-              <p className="text-xs text-gray-400 mt-0.5">Daily volume processed across all customer conversations</p>
+              <p className="text-xs text-gray-400 mt-0.5">Daily volume processed across customer conversations</p>
             </div>
 
-            <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-3 sm:gap-4 text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-teal-500 inline-block"></span>
-                <span className="text-gray-300">Outbound Messages</span>
+                <span className="text-gray-300 text-[11px]">Outbound</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-blue-500 inline-block"></span>
-                <span className="text-gray-300">Inbound Messages</span>
+                <span className="text-gray-300 text-[11px]">Inbound</span>
               </div>
             </div>
           </div>
 
           {/* Bar Chart Representation */}
-          <div className="h-48 flex items-end justify-between gap-4 pt-4 border-b border-[#222e35] px-2">
+          <div className="h-48 flex items-end justify-between gap-2 sm:gap-4 pt-4 border-b border-[#222e35] px-1 sm:px-2 overflow-x-auto">
             {breakdown.map((item, idx) => {
               const outHeight = Math.round((item.outbound / maxDayCount) * 100);
               const inHeight = Math.round((item.inbound / maxDayCount) * 100);
 
               return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
-                  <div className="w-full flex items-end justify-center gap-1.5 h-full">
+                <div key={idx} className="flex-1 min-w-[36px] flex flex-col items-center gap-2 h-full justify-end group">
+                  <div className="w-full flex items-end justify-center gap-1 sm:gap-1.5 h-full">
                     {/* Inbound bar */}
                     <div 
                       className="w-1/2 max-w-[20px] bg-blue-500/80 hover:bg-blue-400 rounded-t transition-all relative group/bar"
@@ -175,7 +175,7 @@ export default function AnalyticsView() {
                       </span>
                     </div>
                   </div>
-                  <span className="text-[10px] text-gray-400 font-mono mt-1">{item.date}</span>
+                  <span className="text-[10px] text-gray-400 font-mono mt-1">{item.date.slice(5)}</span>
                 </div>
               );
             })}
@@ -183,9 +183,9 @@ export default function AnalyticsView() {
         </div>
 
         {/* Bottom Row: Agent Leaderboard & Broadcast Performance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           {/* Agent Leaderboard */}
-          <div className="bg-[#111b21] p-6 rounded-2xl border border-[#222e35]">
+          <div className="bg-[#111b21] p-4 sm:p-6 rounded-2xl border border-[#222e35]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-gray-100 flex items-center gap-2">
                 <Users className="w-4 h-4 text-teal-400" />
@@ -228,7 +228,7 @@ export default function AnalyticsView() {
           </div>
 
           {/* Broadcast Funnel Performance */}
-          <div className="bg-[#111b21] p-6 rounded-2xl border border-[#222e35]">
+          <div className="bg-[#111b21] p-4 sm:p-6 rounded-2xl border border-[#222e35]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-gray-100 flex items-center gap-2">
                 <Send className="w-4 h-4 text-purple-400" />

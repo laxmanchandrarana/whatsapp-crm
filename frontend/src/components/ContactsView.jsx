@@ -209,24 +209,24 @@ export default function ContactsView({ onOpenChat }) {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0c1317] overflow-hidden text-gray-200">
-      {/* Top Header */}
-      <div className="h-16 px-6 border-b border-[#222e35] bg-[#111b21] flex items-center justify-between">
+      {/* Top Header - Fully Responsive */}
+      <div className="p-4 sm:h-16 sm:px-6 border-b border-[#222e35] bg-[#111b21] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-gray-100 flex items-center gap-2">
-              DoubleTick Contacts & CRM Directory
+            <h1 className="text-sm sm:text-base font-bold text-gray-100 flex items-center gap-2">
+              DoubleTick Contacts CRM
             </h1>
-            <p className="text-xs text-gray-400">
-              Manage WhatsApp customer profiles, custom attributes, tags & business groups
+            <p className="text-[11px] sm:text-xs text-gray-400 line-clamp-1">
+              WhatsApp profiles, custom attributes, tags & business groups
             </p>
           </div>
         </div>
 
         {/* Tab Switcher & Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex bg-[#182229] p-1 rounded-xl border border-[#222e35]">
             <button
               onClick={() => setActiveTab('contacts')}
@@ -246,27 +246,27 @@ export default function ContactsView({ onOpenChat }) {
                   : 'text-gray-400 hover:text-gray-200'
               }`}
             >
-              WhatsApp Groups ({groups.length})
+              Groups ({groups.length})
             </button>
           </div>
 
           {activeTab === 'contacts' && (
-            <>
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsImportModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-[#182229] hover:bg-[#202c33] text-gray-200 text-xs font-semibold rounded-xl border border-[#2a3942] transition"
               >
                 <Upload className="w-3.5 h-3.5 text-teal-400" />
-                Import CSV
+                <span className="hidden sm:inline">Import</span> CSV
               </button>
               <button
                 onClick={handleOpenAddModal}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold rounded-xl shadow-sm transition"
+                className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold rounded-xl shadow-sm transition"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                Add Contact
+                <span>Add</span>
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -275,13 +275,13 @@ export default function ContactsView({ onOpenChat }) {
       {activeTab === 'contacts' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Filter Bar */}
-          <div className="px-6 py-3 border-b border-[#222e35] bg-[#111b21]/70 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-3 sm:px-6 sm:py-3 border-b border-[#222e35] bg-[#111b21]/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
             {/* Search */}
-            <form onSubmit={handleSearchSubmit} className="flex-1 min-w-[240px] max-w-md relative">
+            <form onSubmit={handleSearchSubmit} className="w-full sm:max-w-md relative">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search by name, phone (+1...), or email..."
+                placeholder="Search name, phone (+1...), email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-[#182229] border border-[#2a3942] rounded-xl pl-9 pr-4 py-1.5 text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-teal-500"
@@ -289,15 +289,15 @@ export default function ContactsView({ onOpenChat }) {
             </form>
 
             {/* Tag Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              <span className="text-[11px] text-gray-400 font-medium mr-1 flex items-center gap-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x pb-0.5">
+              <span className="text-[11px] text-gray-400 font-medium mr-1 flex items-center gap-1 shrink-0">
                 <Tag className="w-3 h-3 text-teal-400" /> Filter:
               </span>
               {['ALL', 'vip', 'enterprise', 'lead', 'customer', 'trial'].map(t => (
                 <button
                   key={t}
                   onClick={() => setSelectedTag(t)}
-                  className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition ${
+                  className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition shrink-0 ${
                     selectedTag === t
                       ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
                       : 'bg-[#182229] text-gray-400 hover:text-gray-200 border border-[#222e35]'
@@ -309,9 +309,9 @@ export default function ContactsView({ onOpenChat }) {
             </div>
           </div>
 
-          {/* Contacts Table */}
-          <div className="flex-1 overflow-auto p-6">
-            <div className="bg-[#111b21] border border-[#222e35] rounded-2xl overflow-hidden shadow-sm">
+          {/* Desktop Table View (>= 768px) */}
+          <div className="hidden md:flex flex-1 overflow-auto p-6">
+            <div className="bg-[#111b21] border border-[#222e35] rounded-2xl overflow-hidden shadow-sm w-full h-fit">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[#222e35] bg-[#182229]/60 text-gray-400 font-semibold uppercase text-[10px] tracking-wider">
@@ -334,7 +334,7 @@ export default function ContactsView({ onOpenChat }) {
                     <tr>
                       <td colSpan="5" className="py-12 text-center text-gray-500">
                         <Users className="w-8 h-8 mx-auto text-gray-600 mb-2" />
-                        No contacts found. Click "Add Contact" or "Import CSV" to populate your DoubleTick CRM.
+                        No contacts found. Click &quot;Add Contact&quot; or &quot;Import CSV&quot; to populate your DoubleTick CRM.
                       </td>
                     </tr>
                   ) : (
@@ -447,12 +447,110 @@ export default function ContactsView({ onOpenChat }) {
               </table>
             </div>
           </div>
+
+          {/* Mobile Touch Card View (< 768px) */}
+          <div className="md:hidden flex-1 overflow-y-auto p-3 space-y-3">
+            {loading ? (
+              <div className="py-12 text-center text-gray-500 text-xs">
+                <RefreshCw className="w-5 h-5 mx-auto animate-spin mb-2 text-teal-400" />
+                Loading contacts directory...
+              </div>
+            ) : contacts.length === 0 ? (
+              <div className="py-12 text-center text-gray-500 text-xs bg-[#111b21] rounded-2xl border border-[#222e35] p-6">
+                <Users className="w-8 h-8 mx-auto text-gray-600 mb-2" />
+                No contacts found. Tap &quot;Add&quot; or &quot;Import CSV&quot; to populate.
+              </div>
+            ) : (
+              contacts.map(c => {
+                const attrs = c.custom_attributes || c.metadata || {};
+                const attrKeys = Object.keys(attrs);
+                const tagsList = Array.isArray(c.tags) ? c.tags : (c.tags ? [c.tags] : []);
+
+                return (
+                  <div key={c.id} className="bg-[#111b21] border border-[#222e35] rounded-2xl p-4 space-y-3 shadow-sm">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-teal-600 to-emerald-400 text-white font-bold flex items-center justify-center text-sm shadow">
+                          {c.name ? c.name.charAt(0).toUpperCase() : '#'}
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-sm text-gray-100">{c.name || 'Unnamed Contact'}</h3>
+                          <div className="flex items-center gap-1 text-[11px] text-teal-300 font-mono">
+                            <Phone className="w-3 h-3 text-teal-400" /> {c.phone_number}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Chat Jump */}
+                      {onOpenChat && (
+                        <button
+                          onClick={() => onOpenChat(c)}
+                          className="p-2 rounded-xl bg-teal-500 text-slate-950 font-bold shadow-md shadow-teal-500/20 active:scale-95 transition"
+                          title="Open WhatsApp Chat"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {c.email && (
+                      <div className="text-[11px] text-gray-400 flex items-center gap-1.5 pl-1">
+                        <Mail className="w-3 h-3 text-gray-500" /> {c.email}
+                      </div>
+                    )}
+
+                    {/* Tags */}
+                    {tagsList.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {tagsList.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Custom Attributes */}
+                    {attrKeys.length > 0 && (
+                      <div className="pt-2 border-t border-[#222e35] flex flex-wrap gap-1.5">
+                        {attrKeys.map((k) => (
+                          <span key={k} className="text-[10px] bg-[#182229] border border-[#2a3942] text-gray-300 px-2 py-0.5 rounded font-mono">
+                            <strong className="text-teal-400">{k}:</strong> {String(attrs[k])}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Footer Actions */}
+                    <div className="pt-2 border-t border-[#222e35] flex items-center justify-end gap-2 text-xs">
+                      <button
+                        onClick={() => handleEditContact(c)}
+                        className="px-3 py-1.5 rounded-lg bg-[#182229] hover:bg-[#202c33] text-gray-300 border border-[#2a3942] flex items-center gap-1"
+                      >
+                        <Edit2 className="w-3 h-3" /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteContact(c.id, c.name)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
       {/* Tab 2: WhatsApp Business Groups */}
       {activeTab === 'groups' && (
-        <div className="flex-1 flex flex-col overflow-auto p-6">
+        <div className="flex-1 flex flex-col overflow-auto p-4 sm:p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-gray-100 flex items-center gap-2">
@@ -466,7 +564,7 @@ export default function ContactsView({ onOpenChat }) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {groups.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-gray-500 bg-[#111b21] rounded-2xl border border-[#222e35]">
+              <div className="col-span-full py-12 text-center text-gray-500 bg-[#111b21] rounded-2xl border border-[#222e35] p-6">
                 <Users2 className="w-8 h-8 mx-auto text-gray-600 mb-2" />
                 No WhatsApp Business Groups synced yet.
               </div>
@@ -539,7 +637,7 @@ export default function ContactsView({ onOpenChat }) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-gray-300 uppercase tracking-wider block mb-1">
                     Phone (with country code) *
@@ -730,7 +828,7 @@ export default function ContactsView({ onOpenChat }) {
             <div className="px-5 py-4 border-b border-[#222e35] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Users2 className="w-4 h-4 text-teal-400" />
-                <h3 className="text-sm font-bold text-gray-100">Broadcast to "{activeGroup.name}"</h3>
+                <h3 className="text-sm font-bold text-gray-100">Broadcast to &quot;{activeGroup.name}&quot;</h3>
               </div>
               <button onClick={() => setIsGroupModalOpen(false)} className="text-gray-400 hover:text-gray-200">
                 <X className="w-4 h-4" />
