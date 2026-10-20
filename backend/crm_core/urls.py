@@ -30,7 +30,7 @@ router.register(r'bot-flows', BotFlowViewSet, basename='bot-flow')
 urlpatterns = [
     path('', include(router.urls)),
     path('webhooks/whatsapp/', WhatsAppWebhookView.as_view(), name='whatsapp-webhook'),
-    path('webhooks/whatsapp/simulate/', MockWebhookTriggerView.as_view(), name='whatsapp-webhook-simulate'),
+    path('webhooks/whatsapp/simulate/', MockWebhookTriggerView.as_view(), name='whatsapp-simulate-webhook'),
     path('analytics/', AnalyticsView.as_view(), name='crm-analytics'),
     path('stats/', StatsView.as_view(), name='crm-stats'),
 ]

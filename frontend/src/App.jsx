@@ -5,10 +5,13 @@ import ChatTimeline from './components/ChatTimeline';
 import ApprovalDrawer from './components/ApprovalDrawer';
 import TemplateModal from './components/TemplateModal';
 import SimulateWebhookModal from './components/SimulateWebhookModal';
+import BroadcastView from './components/BroadcastView';
+import BotStudioView from './components/BotStudioView';
+import AnalyticsView from './components/AnalyticsView';
 import { api } from './services/api';
 
 export default function App() {
-  const [activeView, setActiveView] = useState('chats'); // 'chats' | 'approvals'
+  const [activeView, setActiveView] = useState('chats'); // 'chats' | 'approvals' | 'broadcasts' | 'bot_studio' | 'analytics'
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -82,7 +85,7 @@ export default function App() {
     }
   }, []);
 
-  // Polling loop (every 3 seconds for real-time reactivity)
+  // Polling loop
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
@@ -94,13 +97,13 @@ export default function App() {
     const interval = setInterval(() => {
       loadConversations();
       loadApprovals();
-      if (activeId) {
+      if (activeId && activeView === 'chats') {
         loadActiveMessages(activeId);
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [loadConversations, loadApprovals, activeId, loadActiveMessages]);
+  }, [loadConversations, loadApprovals, activeId, activeView, loadActiveMessages]);
 
   useEffect(() => {
     if (activeId) {
@@ -109,12 +112,10 @@ export default function App() {
     }
   }, [activeId, loadActiveMessages]);
 
-  // Handle select conversation
   const handleSelectConversation = (id) => {
     setActiveId(id);
   };
 
-  // Handle send message
   const handleSendMessage = async (text) => {
     if (!activeId) return;
     const newMsg = await api.sendMessage({
@@ -126,7 +127,6 @@ export default function App() {
     loadConversations();
   };
 
-  // Handle send template
   const handleSendTemplate = async (template) => {
     if (!activeId) return;
     const bodyComp = template.components?.find(c => c.type === 'BODY') || {};
@@ -142,7 +142,6 @@ export default function App() {
     loadConversations();
   };
 
-  // Handle approve message
   const handleApprove = async (approvalId, editedText) => {
     await api.approveMessage(approvalId, editedText, 'Supervisor Agent');
     loadApprovals();
@@ -150,7 +149,6 @@ export default function App() {
     if (activeId) loadActiveMessages(activeId);
   };
 
-  // Handle reject message
   const handleReject = async (approvalId, reason) => {
     await api.rejectMessage(approvalId, reason);
     loadApprovals();
@@ -158,7 +156,6 @@ export default function App() {
     if (activeId) loadActiveMessages(activeId);
   };
 
-  // Handle simulation
   const handleSimulateSuccess = async (phone, name, text) => {
     const res = await api.simulateIncomingWebhook(phone, name, text);
     await loadConversations();
@@ -185,30 +182,44 @@ export default function App() {
         stats={stats}
       />
 
-      {/* 2. Conversations List Pane */}
-      <ConversationList 
-        conversations={conversations}
-        activeId={activeId}
-        onSelectConversation={handleSelectConversation}
-        statusFilter={statusFilter}
-        setStatusFilter={setStatusFilter}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        pendingApprovalsTotal={pendingApprovalsCount}
-      />
+      {/* 2. Main Center Body based on active view */}
+      {activeView === 'broadcasts' ? (
+        <BroadcastView templates={templates} />
+      ) : activeView === 'bot_studio' ? (
+        <BotStudioView />
+      ) : activeView === 'analytics' ? (
+        <AnalyticsView />
+      ) : (
+        /* Default: Shared Team Inbox & Chats */
+        <>
+          <ConversationList 
+            conversations={conversations}
+            activeId={activeId}
+            onSelectConversation={handleSelectConversation}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            pendingApprovalsTotal={pendingApprovalsCount}
+          />
 
-      {/* 3. Center Chat Timeline Pane */}
-      <ChatTimeline 
-        conversation={activeConversation}
-        messages={messages}
-        onSendMessage={handleSendMessage}
-        onOpenTemplates={() => setIsTemplateModalOpen(true)}
-        onOpenApprovalDrawer={() => setIsApprovalDrawerOpen(true)}
-        onApproveMessage={handleApprove}
-        onRejectMessage={handleReject}
-      />
+          <ChatTimeline 
+            conversation={activeConversation}
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onOpenTemplates={() => setIsTemplateModalOpen(true)}
+            onOpenApprovalDrawer={() => setIsApprovalDrawerOpen(true)}
+            onApproveMessage={handleApprove}
+            onRejectMessage={handleReject}
+            onConversationUpdated={() => {
+              loadConversations();
+              if (activeId) loadActiveMessages(activeId);
+            }}
+          />
+        </>
+      )}
 
-      {/* 4. Right Slide-out Drawer: Approval Queue */}
+      {/* 3. Right Slide-out Drawer: Approval Queue */}
       <ApprovalDrawer 
         isOpen={isApprovalDrawerOpen}
         onClose={() => setIsApprovalDrawerOpen(false)}
@@ -219,19 +230,21 @@ export default function App() {
         onSelectConversation={(id) => {
           setActiveId(id);
           setIsApprovalDrawerOpen(false);
+          setActiveView('chats');
         }}
       />
 
-      {/* 5. Template Picker Modal */}
+      {/* 4. Template Picker & Creator Modal */}
       <TemplateModal 
         isOpen={isTemplateModalOpen}
         onClose={() => setIsTemplateModalOpen(false)}
         templates={templates}
         onSendTemplate={handleSendTemplate}
         activeConversation={activeConversation}
+        onRefreshTemplates={loadInitialData}
       />
 
-      {/* 6. Webhook Simulator Modal (For Live Demos & QA) */}
+      {/* 5. Webhook Simulator Modal (For Live Demos & QA) */}
       <SimulateWebhookModal 
         isOpen={isSimulatorModalOpen}
         onClose={() => setIsSimulatorModalOpen(false)}

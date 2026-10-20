@@ -33,16 +33,16 @@ INTENT_RULES = [
         'suggested_template': "Hi {name}, we are sorry to see you go. I can help you process your account cancellation. Before proceeding, would you like to pause your subscription or speak with a senior specialist?"
     },
     {
-        'intent': 'human_handoff',
-        'keywords': ['human', 'person', 'manager', 'speak to a real person', 'real person', 'live agent'],
-        'risk_score': 0.80,
-        'suggested_template': "Hi {name}, I am escalating your conversation to our senior team manager right now."
-    },
-    {
         'intent': 'pricing_negotiation',
-        'keywords': ['discount', 'cheaper', 'price match', 'enterprise discount', 'quote', 'contract discount', 'deal', 'enterprise quote'],
+        'keywords': ['discount', 'cheaper', 'price match', 'enterprise discount', 'quote', 'contract discount', 'deal', 'enterprise quote', 'license'],
         'risk_score': 0.75,
         'suggested_template': "Hi {name}, thank you for your interest in our enterprise tier. I can offer a custom 20% discount on an annual commitment. Let me know if you would like me to prepare the agreement."
+    },
+    {
+        'intent': 'human_handoff',
+        'keywords': ['human agent', 'speak to a human', 'speak to a person', 'manager', 'speak to a real person', 'real person', 'live agent', 'human support', 'real person and manager'],
+        'risk_score': 0.80,
+        'suggested_template': "Hi {name}, I am escalating your conversation to our senior team manager right now."
     },
     {
         'intent': 'support_hours_inquiry',
@@ -69,15 +69,9 @@ def analyze_intent_and_risk(text: str):
 
 @shared_task
 def dispatch_outbound_meta_message(message_id: int):
-    """
-    Strict Gatekeeper:
-    Sends outbound message via Meta Cloud API only if status is approved/safe.
-    Blocks any draft, pending approval, or rejected message.
-    """
     try:
         msg = Message.objects.select_related('conversation__contact').get(id=message_id)
 
-        # Gatekeeper checks
         if msg.direction != Message.DIR_OUTBOUND:
             return {'status': 'skipped', 'reason': 'Not outbound message'}
 
@@ -106,7 +100,6 @@ def dispatch_outbound_meta_message(message_id: int):
         msg.raw_payload = res
         msg.save()
 
-        # Update conversation timestamp & first response time calculation
         conv = msg.conversation
         if not conv.first_response_time_seconds:
             elapsed = (timezone.now() - conv.created_at).total_seconds()
@@ -131,9 +124,6 @@ def dispatch_outbound_meta_message(message_id: int):
 
 @shared_task
 def execute_broadcast_campaign(campaign_id: int):
-    """
-    Rate-limited batch dispatching for BroadcastCampaign.
-    """
     try:
         campaign = BroadcastCampaign.objects.select_related('template').get(id=campaign_id)
         campaign.status = BroadcastCampaign.STATUS_RUNNING
@@ -329,11 +319,6 @@ def process_bot_flow_step(contact: Contact, message_text: str):
 
 @shared_task
 def evaluate_ai_response_and_approval(inbound_message_id: int):
-    """
-    Evaluates inbound customer message with OpenMausBot Copilot AI rules:
-    - If risk score >= risk_threshold: holds draft in ApprovalQueue with PENDING_APPROVAL.
-    - If risk score < risk_threshold: dispatches auto-reply directly.
-    """
     try:
         msg = Message.objects.select_related('conversation__contact').get(id=inbound_message_id)
         if msg.direction != Message.DIR_INBOUND:
@@ -342,12 +327,10 @@ def evaluate_ai_response_and_approval(inbound_message_id: int):
         contact = msg.conversation.contact
         contact_name = contact.name or contact.phone_number
 
-        # 1. First test if message can be handled by BotStudio flow
         if process_bot_flow_step(contact, msg.content):
             logger.info(f"Inbound message #{inbound_message_id} handled by active BotStudio flow.")
             return
 
-        # 2. Retrieve AI Agent configuration
         ai_config = AIAgentConfig.objects.filter(is_active=True).first()
         risk_threshold = ai_config.risk_threshold if ai_config else 0.50
         model_name = ai_config.model_name if ai_config else 'gemini-2.5-pro'
@@ -358,7 +341,6 @@ def evaluate_ai_response_and_approval(inbound_message_id: int):
         logger.info(f"AI Evaluation for msg #{inbound_message_id}: intent='{intent}', risk={risk_score:.2f}, threshold={risk_threshold}")
 
         if risk_score >= risk_threshold:
-            # Sensitive: Hold in ApprovalQueue
             draft_msg = Message.objects.create(
                 conversation=msg.conversation,
                 direction=Message.DIR_OUTBOUND,
@@ -383,7 +365,6 @@ def evaluate_ai_response_and_approval(inbound_message_id: int):
             logger.info(f"Enqueued msg #{draft_msg.id} into ApprovalQueue with risk {risk_score:.2f}")
 
         else:
-            # Safe / Low-risk: auto-reply
             client = WhatsAppCloudAPIClient()
             res = client.send_text_message(recipient_phone=contact.phone_number, text_body=suggested_text)
             meta_id = None
@@ -406,16 +387,12 @@ def evaluate_ai_response_and_approval(inbound_message_id: int):
 
 @shared_task
 def process_webhook_payload(payload: dict):
-    """
-    Parses Meta WhatsApp Webhook payload.
-    """
     try:
         entries = payload.get('entry', [])
         for entry in entries:
             for change in entry.get('changes', []):
                 value = change.get('value', {})
 
-                # 1. Status receipts
                 statuses = value.get('statuses', [])
                 for st in statuses:
                     meta_id = st.get('id')
@@ -433,7 +410,6 @@ def process_webhook_payload(payload: dict):
                                 r.campaign.read_count += 1
                                 r.campaign.save(update_fields=['read_count'])
 
-                # 2. Inbound messages
                 messages = value.get('messages', [])
                 contacts_meta = value.get('contacts', [])
                 name_map = {}

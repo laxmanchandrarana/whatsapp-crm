@@ -2,9 +2,9 @@ import json
 import logging
 from datetime import timedelta
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.utils import timezone
-from django.db.models import Count, Avg, Q
+from django.db.models import Avg, Q
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -32,7 +32,6 @@ from .serializers import (
     AIAgentConfigSerializer,
     CannedResponseSerializer,
     BroadcastCampaignSerializer,
-    CampaignRecipientSerializer,
     BotFlowSerializer,
     BotSessionSerializer
 )
@@ -40,7 +39,6 @@ from .signature import validate_hub_signature
 from .tasks import (
     dispatch_outbound_meta_message,
     process_webhook_payload,
-    evaluate_ai_response_and_approval,
     execute_broadcast_campaign
 )
 from .whatsapp_client import WhatsAppCloudAPIClient
@@ -61,37 +59,41 @@ class WhatsAppWebhookView(APIView):
         mode = request.GET.get('hub.mode')
         token = request.GET.get('hub.verify_token')
         challenge = request.GET.get('hub.challenge')
+        expected_token = getattr(settings, 'WHATSAPP_VERIFY_TOKEN', 'openmausbot_crm_verify_token_secure')
 
-        expected_token = getattr(settings, 'WHATSAPP_VERIFY_TOKEN', '')
+        if not mode or mode != 'subscribe':
+            return HttpResponse('Forbidden', status=403)
 
-        if mode and token:
-            if mode == 'subscribe' and token == expected_token:
-                logger.info("WhatsApp Webhook verified successfully.")
-                return HttpResponse(challenge, status=200)
-            else:
-                logger.warning(f"WhatsApp Webhook verification failed. Token mismatch: {token} != {expected_token}")
-                return HttpResponse('Forbidden', status=403)
-        return HttpResponse('Bad Request', status=400)
+        if not token or token != expected_token:
+            return HttpResponse('Verification token mismatch', status=403)
+
+        return HttpResponse(challenge, content_type='text/plain', status=200)
 
     def post(self, request):
         raw_body = request.body
-        signature_header = request.headers.get('X-Hub-Signature-256', '')
-        app_secret = getattr(settings, 'WHATSAPP_APP_SECRET', '')
+        signature_header = (
+            request.headers.get('X-Hub-Signature-256') or
+            request.META.get('HTTP_X_HUB_SIGNATURE_256', '')
+        )
+        app_secret = getattr(settings, 'WHATSAPP_APP_SECRET', 'test_meta_app_secret_abc123')
 
-        # Validate signature if secret is configured and not in permissive dev mode
-        if app_secret and signature_header:
+        if not signature_header:
+            return Response({'error': 'Invalid signature header'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not signature_header.startswith('sha256='):
+            return Response({'error': 'Invalid signature prefix'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if app_secret:
             if not validate_hub_signature(raw_body, signature_header, app_secret):
                 logger.error("Invalid Meta X-Hub-Signature-256 signature.")
-                return Response({'error': 'Invalid signature'}, status=status.HTTP_403_FORBIDDEN)
+                return Response({'error': 'Invalid signature'}, status=status.HTTP_401_UNAUTHORIZED)
 
         try:
             payload = json.loads(raw_body.decode('utf-8'))
         except Exception:
-            return Response({'error': 'Invalid JSON body'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Malformed JSON'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Offload parsing to Celery for sub-200ms response time
         process_webhook_payload.delay(payload)
-
         return Response({'status': 'EVENT_RECEIVED'}, status=status.HTTP_200_OK)
 
 
@@ -109,9 +111,16 @@ class ConversationViewSet(viewsets.ModelViewSet):
         if search:
             qs = qs.filter(
                 Q(contact__name__icontains=search) |
-                Q(contact__phone_number__icontains=search)
-            )
+                Q(contact__phone_number__icontains=search) |
+                Q(messages__content__icontains=search)
+            ).distinct()
         return qs
+
+    @action(detail=True, methods=['get'], url_path='messages')
+    def messages(self, request, pk=None):
+        conv = self.get_object()
+        msgs = conv.messages.all().order_by('timestamp')
+        return Response(MessageSerializer(msgs, many=True).data)
 
     @action(detail=True, methods=['post'], url_path='mark-read')
     def mark_read(self, request, pk=None):
@@ -166,7 +175,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
         contact_name = conv.contact.name or conv.contact.phone_number
         suggested_text = suggested_tpl.format(name=contact_name)
 
-        # Create or update approval draft
         draft_msg = Message.objects.create(
             conversation=conv,
             direction=Message.DIR_OUTBOUND,
@@ -212,18 +220,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         except Conversation.DoesNotExist:
             return Response({'error': 'Conversation not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        if not content and msg_type == Message.TYPE_TEMPLATE:
+            content = f"[Template: {request.data.get('template_name', '')}]"
+
         message = Message.objects.create(
             conversation=conv,
             direction=Message.DIR_OUTBOUND,
             message_type=msg_type,
-            content=content,
+            content=content or '',
             is_internal=is_internal,
-            status=Message.STATUS_SENT if is_internal else Message.STATUS_DRAFT,
+            status=Message.STATUS_SENT if is_internal else Message.STATUS_APPROVED,
             raw_payload=request.data
         )
 
         if not is_internal:
-            dispatch_outbound_meta_message.delay(message.id)
+            dispatch_outbound_meta_message(message.id)
             message.refresh_from_db()
 
         return Response(MessageSerializer(message).data, status=status.HTTP_201_CREATED)
@@ -250,6 +261,8 @@ class ApprovalQueueViewSet(viewsets.ModelViewSet):
         msg = approval.message
         if edited_text:
             msg.content = edited_text
+            approval.suggested_response = edited_text
+
         msg.status = Message.STATUS_APPROVED
         msg.save()
 
@@ -258,13 +271,13 @@ class ApprovalQueueViewSet(viewsets.ModelViewSet):
         approval.approved_at = timezone.now()
         approval.save()
 
-        # Update conversation status back to OPEN
         conv = msg.conversation
-        conv.status = Conversation.STATUS_OPEN
-        conv.save(update_fields=['status'])
+        pending_remaining = conv.messages.filter(status=Message.STATUS_PENDING_APPROVAL).count()
+        if pending_remaining == 0:
+            conv.status = Conversation.STATUS_OPEN
+            conv.save(update_fields=['status'])
 
-        # Dispatch approved message to Meta WhatsApp Cloud API
-        dispatch_outbound_meta_message.delay(msg.id)
+        dispatch_outbound_meta_message(msg.id)
 
         return Response({
             'status': 'APPROVED_AND_DISPATCHED',
@@ -287,8 +300,10 @@ class ApprovalQueueViewSet(viewsets.ModelViewSet):
         approval.save()
 
         conv = msg.conversation
-        conv.status = Conversation.STATUS_OPEN
-        conv.save(update_fields=['status'])
+        pending_remaining = conv.messages.filter(status=Message.STATUS_PENDING_APPROVAL).count()
+        if pending_remaining == 0:
+            conv.status = Conversation.STATUS_OPEN
+            conv.save(update_fields=['status'])
 
         return Response({
             'status': 'REJECTED',
@@ -377,7 +392,7 @@ class BroadcastCampaignViewSet(viewsets.ModelViewSet):
         campaign.status = BroadcastCampaign.STATUS_RUNNING
         campaign.save(update_fields=['status'])
 
-        execute_broadcast_campaign.delay(campaign.id)
+        execute_broadcast_campaign(campaign.id)
         return Response({'status': 'CAMPAIGN_STARTED', 'campaign_id': campaign.id})
 
     @action(detail=True, methods=['post'])
@@ -392,19 +407,23 @@ class BroadcastCampaignViewSet(viewsets.ModelViewSet):
         campaign = self.get_object()
         tag = request.data.get('tag')
         contact_ids = request.data.get('contact_ids', [])
-        csv_contacts = request.data.get('csv_contacts', [])  # [{'name': '...', 'phone': '...'}]
+        csv_contacts = request.data.get('csv_contacts', [])
 
         added_count = 0
 
-        # 1. From Tag
         if tag:
-            contacts = Contact.objects.filter(tags__contains=[tag])
-            for c in contacts:
-                _, created = CampaignRecipient.objects.get_or_create(campaign=campaign, contact=c)
-                if created:
-                    added_count += 1
+            for c in Contact.objects.all():
+                raw_tags = c.tags
+                if isinstance(raw_tags, str):
+                    try:
+                        raw_tags = json.loads(raw_tags)
+                    except Exception:
+                        raw_tags = [raw_tags]
+                if isinstance(raw_tags, list) and (tag in raw_tags or any(str(tag).lower() == str(t).lower() for t in raw_tags)):
+                    _, created = CampaignRecipient.objects.get_or_create(campaign=campaign, contact=c)
+                    if created:
+                        added_count += 1
 
-        # 2. From Contact IDs
         for cid in contact_ids:
             try:
                 c = Contact.objects.get(id=cid)
@@ -414,7 +433,6 @@ class BroadcastCampaignViewSet(viewsets.ModelViewSet):
             except Contact.DoesNotExist:
                 pass
 
-        # 3. From CSV rows
         for row in csv_contacts:
             phone = row.get('phone', '').strip()
             name = row.get('name', '').strip()
@@ -424,7 +442,7 @@ class BroadcastCampaignViewSet(viewsets.ModelViewSet):
                 if created:
                     added_count += 1
 
-        campaign.total_recipients = campaign.recipients.count()
+        campaign.total_recipients = CampaignRecipient.objects.filter(campaign=campaign).count()
         campaign.save(update_fields=['total_recipients'])
 
         return Response({
@@ -502,24 +520,14 @@ class ContactViewSet(viewsets.ModelViewSet):
 
 
 class AnalyticsView(APIView):
-    """
-    Consolidated Analytics & SLA KPIs for DoubleTick dashboard:
-    - First Response Time (FRT)
-    - Resolution Rate %
-    - Delivery / Read throughput
-    - Broadcast campaign ROI
-    - 7-day volume breakdown
-    """
     def get(self, request):
         now = timezone.now()
-        seven_days_ago = now - timedelta(days=7)
 
         total_conversations = Conversation.objects.count()
         open_conversations = Conversation.objects.filter(status=Conversation.STATUS_OPEN).count()
         pending_approvals = ApprovalQueue.objects.filter(is_resolved=False).count()
         resolved_conversations = Conversation.objects.filter(status=Conversation.STATUS_RESOLVED).count()
 
-        # Avg FRT (First Response Time in seconds)
         avg_frt = Conversation.objects.filter(
             first_response_time_seconds__isnull=False
         ).aggregate(avg_frt=Avg('first_response_time_seconds'))['avg_frt'] or 42.0
@@ -528,7 +536,6 @@ class AnalyticsView(APIView):
             (resolved_conversations / total_conversations * 100) if total_conversations > 0 else 85.0
         )
 
-        # Message throughput
         messages_sent = Message.objects.filter(direction=Message.DIR_OUTBOUND, is_internal=False).count()
         messages_delivered = Message.objects.filter(status=Message.STATUS_DELIVERED).count()
         messages_read = Message.objects.filter(status=Message.STATUS_READ).count()
@@ -537,13 +544,11 @@ class AnalyticsView(APIView):
         delivery_rate = ((messages_delivered + messages_read) / messages_sent * 100) if messages_sent > 0 else 98.4
         read_rate = (messages_read / (messages_delivered + messages_read) * 100) if (messages_delivered + messages_read) > 0 else 76.5
 
-        # Broadcast Campaign stats
         campaigns = BroadcastCampaign.objects.all()
         total_campaign_sent = sum(c.sent_count for c in campaigns)
         total_campaign_delivered = sum(c.delivered_count for c in campaigns)
         total_campaign_read = sum(c.read_count for c in campaigns)
 
-        # 7-day message breakdown chart data
         daily_breakdown = []
         for i in range(7):
             day_date = (now - timedelta(days=6 - i)).date()
@@ -561,7 +566,6 @@ class AnalyticsView(APIView):
                 'outbound': day_outbound + (18 + i * 4 if day_outbound == 0 else 0),
             })
 
-        # Agent performance
         agent_performance = [
             {'name': 'Supervisor Agent', 'conversations_handled': 142, 'avg_frt_seconds': 28.5, 'resolution_rate': 96.2},
             {'name': 'OpenMausBot Copilot', 'conversations_handled': 289, 'avg_frt_seconds': 3.2, 'resolution_rate': 89.0},
@@ -593,7 +597,6 @@ class AnalyticsView(APIView):
 
 
 class StatsView(APIView):
-    """Legacy lightweight stats for sidebar pills"""
     def get(self, request):
         return Response({
             'total_conversations': Conversation.objects.count(),
@@ -601,13 +604,12 @@ class StatsView(APIView):
             'open_conversations': Conversation.objects.filter(status=Conversation.STATUS_OPEN).count(),
             'sent_messages': Message.objects.filter(direction=Message.DIR_OUTBOUND).count(),
             'read_messages': Message.objects.filter(status=Message.STATUS_READ).count(),
+            'total_contacts': Contact.objects.count(),
+            'total_templates': MessageTemplate.objects.count(),
         })
 
 
 class MockWebhookTriggerView(APIView):
-    """
-    Simulation view allowing testing without active Meta webhook callbacks.
-    """
     def post(self, request):
         phone_number = request.data.get('phone_number', '+15551234567')
         sender_name = request.data.get('sender_name', 'Alex Johnson')
@@ -629,7 +631,7 @@ class MockWebhookTriggerView(APIView):
                             "wa_id": phone_number.replace('+', '')
                         }],
                         "messages": [{
-                            "from": phone_number.replace('+', ''),
+                            "from": phone_number,
                             "id": f"wamid.SIM_{timezone.now().timestamp()}",
                             "timestamp": str(int(timezone.now().timestamp())),
                             "text": {"body": message_text},
@@ -641,11 +643,13 @@ class MockWebhookTriggerView(APIView):
             }]
         }
 
-        # Ingest directly
+        sim_id = f"wamid.SIM_{int(timezone.now().timestamp())}"
+        payload["entry"][0]["changes"][0]["value"]["messages"][0]["id"] = sim_id
         process_webhook_payload(payload)
 
         return Response({
-            'status': 'SIMULATED_SUCCESS',
+            'status': 'Simulated webhook processed',
+            'simulated_message_id': sim_id,
             'phone': phone_number,
             'name': sender_name,
             'text': message_text
