@@ -14,7 +14,9 @@ from .views import (
     BotFlowViewSet,
     WhatsAppGroupViewSet,
     AnalyticsView,
-    StatsView
+    StatsView,
+    MetaSettingsView,
+    MetaSettingsTestView
 )
 
 router = DefaultRouter()
@@ -36,4 +38,6 @@ urlpatterns = [
     path('webhooks/whatsapp/simulate/', MockWebhookTriggerView.as_view(), name='whatsapp-simulate-webhook'),
     path('analytics/', AnalyticsView.as_view(), name='crm-analytics'),
     path('stats/', StatsView.as_view(), name='crm-stats'),
+    path('settings/meta/', MetaSettingsView.as_view(), name='meta-settings'),
+    path('settings/meta/test/', MetaSettingsTestView.as_view(), name='meta-settings-test'),
 ]

@@ -7,7 +7,8 @@ import {
   Send,
   Bot,
   BarChart3,
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 
 export default function Sidebar({ 
@@ -87,11 +88,15 @@ export default function Sidebar({
           <Bot className="w-5 h-5" />
         </button>
 
-                {/* 5. Contacts & CRM */}
+        {/* 5. Contacts & CRM */}
         <button
           onClick={() => setActiveView('contacts')}
           title="DoubleTick Contacts & WhatsApp Groups"
-          className={`relative p-3 rounded-xl transition-all duration-150 ${activeView === "contacts" ? "bg-[#202c33] text-teal-400 shadow-inner" : "text-gray-400 hover:text-gray-200 hover:bg-[#1a252d]"}`}
+          className={`relative p-3 rounded-xl transition-all duration-150 ${
+            activeView === "contacts" 
+              ? "bg-[#202c33] text-teal-400 shadow-inner" 
+              : "text-gray-400 hover:text-gray-200 hover:bg-[#1a252d]"
+          }`}
         >
           <Users className="w-5 h-5" />
         </button>
@@ -109,10 +114,23 @@ export default function Sidebar({
           <BarChart3 className="w-5 h-5" />
         </button>
 
+        {/* 7. Settings & Meta Webhook */}
+        <button
+          onClick={() => setActiveView('settings')}
+          title="Meta WhatsApp Cloud API & Webhook Settings"
+          className={`relative p-3 rounded-xl transition-all duration-150 ${
+            activeView === 'settings' 
+              ? 'bg-[#202c33] text-teal-400 shadow-inner' 
+              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a252d]'
+          }`}
+        >
+          <Settings className="w-5 h-5" />
+        </button>
+
         {/* Separator */}
         <div className="w-8 h-[1px] bg-[#222e35] my-1"></div>
 
-        {/* 6. Message Templates Modal */}
+        {/* 8. Message Templates Modal */}
         <button
           onClick={onOpenTemplates}
           title="WhatsApp Message Templates"
@@ -121,7 +139,7 @@ export default function Sidebar({
           <FileText className="w-5 h-5" />
         </button>
 
-        {/* 7. Mock Webhook Simulator */}
+        {/* 9. Mock Webhook Simulator */}
         <button
           onClick={onOpenSimulator}
           title="Simulate Inbound Webhook (QA / Demo)"
@@ -137,13 +155,14 @@ export default function Sidebar({
 
       {/* Footer stats badge */}
       <div className="flex flex-col items-center gap-2">
-        <div 
-          className="text-[10px] text-gray-400 text-center px-1 font-mono border border-[#2a3942] rounded py-1 bg-[#1a252d]"
-          title="Meta Cloud API Connected"
+        <button 
+          onClick={() => setActiveView('settings')}
+          className="text-[10px] text-gray-400 text-center px-1 font-mono border border-[#2a3942] rounded py-1 bg-[#1a252d] hover:border-teal-500/50 cursor-pointer transition"
+          title="Open Meta Cloud API Settings"
         >
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
           META
-        </div>
+        </button>
       </div>
     </aside>
   );

@@ -1,3 +1,5 @@
+import os
+import requests
 import re
 import csv
 import io
@@ -916,3 +918,147 @@ class MockWebhookTriggerView(APIView):
             'name': sender_name,
             'text': message_text
         }, status=status.HTTP_200_OK)
+
+
+def _mask_token(token: str) -> str:
+    if not token or token.startswith('mock_'):
+        return token
+    if len(token) <= 8:
+        return '*' * len(token)
+    return token[:4] + '*' * (len(token) - 8) + token[-4:]
+
+def _update_env_file(env_path, updates: dict):
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    
+    new_lines = []
+    seen = set()
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#') and '=' in stripped:
+            key = stripped.split('=', 1)[0].strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}\n")
+                seen.add(key)
+                continue
+        new_lines.append(line)
+    
+    for key, val in updates.items():
+        if key not in seen:
+            new_lines.append(f"{key}={val}\n")
+            
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.writelines(new_lines)
+
+
+class MetaSettingsView(APIView):
+    """
+    Meta WhatsApp Cloud API credentials & webhook endpoint settings.
+    Allows viewing current settings (masked) and updating them directly.
+    """
+    def get(self, request):
+        api_token = getattr(settings, 'WHATSAPP_API_TOKEN', '')
+        app_secret = getattr(settings, 'WHATSAPP_APP_SECRET', '')
+        return Response({
+            'whatsapp_phone_number_id': getattr(settings, 'WHATSAPP_PHONE_NUMBER_ID', ''),
+            'whatsapp_business_account_id': getattr(settings, 'WHATSAPP_BUSINESS_ACCOUNT_ID', ''),
+            'whatsapp_verify_token': getattr(settings, 'WHATSAPP_VERIFY_TOKEN', 'openmausbot_crm_verify_token_secure'),
+            'whatsapp_api_version': getattr(settings, 'WHATSAPP_API_VERSION', 'v20.0'),
+            'whatsapp_simulate_outbound': getattr(settings, 'WHATSAPP_SIMULATE_OUTBOUND', True),
+            'has_api_token': bool(api_token and not api_token.startswith('mock_')),
+            'masked_api_token': _mask_token(api_token),
+            'has_app_secret': bool(app_secret and not app_secret.startswith('mock_')),
+            'masked_app_secret': _mask_token(app_secret),
+            'webhook_callback_url': request.build_absolute_uri('/api/webhooks/whatsapp/'),
+        })
+
+    def post(self, request):
+        data = request.data
+        updates = {}
+        
+        phone_number_id = data.get('whatsapp_phone_number_id')
+        if phone_number_id is not None:
+            val = str(phone_number_id).strip()
+            settings.WHATSAPP_PHONE_NUMBER_ID = val
+            os.environ['WHATSAPP_PHONE_NUMBER_ID'] = val
+            updates['WHATSAPP_PHONE_NUMBER_ID'] = val
+
+        business_account_id = data.get('whatsapp_business_account_id')
+        if business_account_id is not None:
+            val = str(business_account_id).strip()
+            settings.WHATSAPP_BUSINESS_ACCOUNT_ID = val
+            os.environ['WHATSAPP_BUSINESS_ACCOUNT_ID'] = val
+            updates['WHATSAPP_BUSINESS_ACCOUNT_ID'] = val
+
+        api_token = data.get('whatsapp_api_token')
+        if api_token is not None and str(api_token).strip() and not str(api_token).startswith('****'):
+            val = str(api_token).strip()
+            settings.WHATSAPP_API_TOKEN = val
+            os.environ['WHATSAPP_API_TOKEN'] = val
+            updates['WHATSAPP_API_TOKEN'] = val
+
+        verify_token = data.get('whatsapp_verify_token')
+        if verify_token is not None and str(verify_token).strip():
+            val = str(verify_token).strip()
+            settings.WHATSAPP_VERIFY_TOKEN = val
+            os.environ['WHATSAPP_VERIFY_TOKEN'] = val
+            updates['WHATSAPP_VERIFY_TOKEN'] = val
+
+        app_secret = data.get('whatsapp_app_secret')
+        if app_secret is not None and str(app_secret).strip() and not str(app_secret).startswith('****'):
+            val = str(app_secret).strip()
+            settings.WHATSAPP_APP_SECRET = val
+            os.environ['WHATSAPP_APP_SECRET'] = val
+            updates['WHATSAPP_APP_SECRET'] = val
+
+        simulate_outbound = data.get('whatsapp_simulate_outbound')
+        if simulate_outbound is not None:
+            val_bool = bool(simulate_outbound)
+            settings.WHATSAPP_SIMULATE_OUTBOUND = val_bool
+            os.environ['WHATSAPP_SIMULATE_OUTBOUND'] = str(val_bool)
+            updates['WHATSAPP_SIMULATE_OUTBOUND'] = str(val_bool)
+
+        env_path = settings.BASE_DIR / '.env'
+        _update_env_file(env_path, updates)
+
+        return self.get(request)
+
+
+class MetaSettingsTestView(APIView):
+    """
+    Performs a live test call to Meta Graph API to verify Phone Number ID and Access Token.
+    """
+    def post(self, request):
+        phone_number_id = request.data.get('whatsapp_phone_number_id') or getattr(settings, 'WHATSAPP_PHONE_NUMBER_ID', '')
+        api_token = request.data.get('whatsapp_api_token')
+        if not api_token or str(api_token).startswith('****'):
+            api_token = getattr(settings, 'WHATSAPP_API_TOKEN', '')
+        version = getattr(settings, 'WHATSAPP_API_VERSION', 'v20.0')
+
+        if not phone_number_id or phone_number_id == 'mock_phone_number_id':
+            return Response({'success': False, 'error': 'Please provide a valid Meta Phone Number ID.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not api_token or api_token == 'mock_token':
+            return Response({'success': False, 'error': 'Please provide a valid Meta API Access Token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        url = f"https://graph.facebook.com/{version}/{phone_number_id}"
+        headers = {"Authorization": f"Bearer {api_token}"}
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            resp_data = res.json()
+            if res.status_code == 200:
+                return Response({
+                    'success': True,
+                    'verified_name': resp_data.get('verified_name'),
+                    'display_phone_number': resp_data.get('display_phone_number'),
+                    'quality_rating': resp_data.get('quality_rating'),
+                    'id': resp_data.get('id'),
+                    'raw': resp_data
+                })
+            else:
+                err_msg = resp_data.get('error', {}).get('message', res.text)
+                return Response({'success': False, 'error': f"Meta Graph API error ({res.status_code}): {err_msg}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'success': False, 'error': f"Network error connecting to Meta: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

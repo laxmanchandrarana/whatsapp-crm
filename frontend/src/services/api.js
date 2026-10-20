@@ -335,5 +335,33 @@ export const api = {
     });
     if (!res.ok) throw new Error('Failed to simulate webhook');
     return res.json();
+  },
+
+  // Meta Cloud API & Webhook Settings
+  getMetaSettings: async () => {
+    const res = await fetch(`${API_BASE}/settings/meta/`);
+    if (!res.ok) throw new Error('Failed to fetch Meta settings');
+    return res.json();
+  },
+
+  updateMetaSettings: async (payload) => {
+    const res = await fetch(`${API_BASE}/settings/meta/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to update Meta settings');
+    return res.json();
+  },
+
+  testMetaConnection: async (payload) => {
+    const res = await fetch(`${API_BASE}/settings/meta/test/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Connection test failed');
+    return data;
   }
 };

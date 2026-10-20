@@ -181,3 +181,26 @@ class APITests(TestCase):
         approval = ApprovalQueue.objects.filter(message__conversation__contact__phone_number='+15558889999').first()
         self.assertIsNotNone(approval)
         self.assertEqual(approval.intent, 'refund_request')
+
+    def test_meta_settings_get_and_update(self):
+        """Test GET and POST for Meta WhatsApp Cloud API settings."""
+        url = reverse("meta-settings")
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, 200)
+        data = res_get.json()
+        self.assertIn("whatsapp_phone_number_id", data)
+        self.assertIn("webhook_callback_url", data)
+        self.assertIn("/api/webhooks/whatsapp/", data["webhook_callback_url"])
+
+        # Test POST update
+        res_post = self.client.post(url, {
+            "whatsapp_phone_number_id": "999888777666",
+            "whatsapp_business_account_id": "111222333444",
+            "whatsapp_verify_token": "my_custom_verify_token_123",
+            "whatsapp_simulate_outbound": True
+        }, content_type="application/json")
+        self.assertEqual(res_post.status_code, 200)
+        updated = res_post.json()
+        self.assertEqual(updated["whatsapp_phone_number_id"], "999888777666")
+        self.assertEqual(updated["whatsapp_business_account_id"], "111222333444")
+        self.assertEqual(updated["whatsapp_verify_token"], "my_custom_verify_token_123")

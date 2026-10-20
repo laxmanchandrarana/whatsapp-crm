@@ -9,7 +9,8 @@ import {
   Sparkles, 
   FileText, 
   Menu,
-  ChevronLeft
+  ChevronLeft,
+  Settings
 } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ConversationList from './components/ConversationList';
@@ -21,6 +22,7 @@ import BroadcastView from './components/BroadcastView';
 import BotStudioView from './components/BotStudioView';
 import AnalyticsView from './components/AnalyticsView';
 import ContactsView from './components/ContactsView';
+import SettingsView from './components/SettingsView';
 import { api } from './services/api';
 
 export default function App() {
@@ -266,6 +268,8 @@ export default function App() {
           <ContactsView onOpenChat={handleOpenChatFromContacts} />
         ) : activeView === 'analytics' ? (
           <AnalyticsView />
+        ) : activeView === 'settings' ? (
+          <SettingsView />
         ) : (
           /* Shared Team Inbox & Chats */
           <>
@@ -396,6 +400,19 @@ export default function App() {
         >
           <BarChart3 className="w-5 h-5" />
           <span className="text-[10px] mt-0.5">Analytics</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveView('settings');
+            setMobileShowChat(false);
+          }}
+          className={`flex flex-col items-center justify-center flex-1 py-1 transition ${
+            activeView === 'settings' ? 'text-teal-400' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <Settings className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Settings</span>
         </button>
       </nav>
 
