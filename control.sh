@@ -56,6 +56,12 @@ case "$1" in
     echo "All WhatsApp CRM processes stopped."
     ;;
 
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+
   status)
     echo "WhatsApp CRM Service Status:"
     echo -n "  Backend (Django 8000):  "
@@ -71,7 +77,7 @@ case "$1" in
     ;;
 
   *)
-    echo "Usage: $0 {start|stop|status|logs}"
+    echo "Usage: $0 {start|stop|restart|status|logs}"
     exit 1
     ;;
 esac
