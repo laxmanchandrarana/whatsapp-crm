@@ -208,8 +208,24 @@ def execute_broadcast_campaign(campaign_id: int):
             pass
 
 
+def replace_template_variables(text: str, contact: Contact) -> str:
+    if not text:
+        return ""
+    rendered = str(text)
+    rendered = rendered.replace("{{name}}", contact.name or "there")
+    rendered = rendered.replace("{{phone}}", contact.phone_number)
+    rendered = rendered.replace("{{phone_number}}", contact.phone_number)
+    rendered = rendered.replace("{{email}}", contact.email or "")
+
+    attrs = {**(contact.metadata or {}), **(getattr(contact, 'custom_attributes', {}) or {})}
+    for k, v in attrs.items():
+        rendered = rendered.replace(f"{{{{{k}}}}}", str(v))
+        rendered = rendered.replace(f"{{{{custom_attributes.{k}}}}}", str(v))
+    return rendered
+
+
 def process_bot_flow_step(contact: Contact, message_text: str):
-    clean_text = message_text.strip().lower()
+    clean_text = (message_text or '').strip().lower()
 
     session = BotSession.objects.filter(contact=contact, is_completed=False).order_by('-updated_at').first()
 
@@ -220,11 +236,24 @@ def process_bot_flow_step(contact: Contact, message_text: str):
             if flow.trigger_type == BotFlow.TRIGGER_ALWAYS:
                 matched_flow = flow
                 break
-            if flow.trigger_type == BotFlow.TRIGGER_KEYWORD:
+            elif flow.trigger_type == BotFlow.TRIGGER_KEYWORD:
                 for kw in flow.trigger_keywords:
                     if kw.lower() in clean_text:
                         matched_flow = flow
                         break
+            elif flow.trigger_type == getattr(BotFlow, 'TRIGGER_REGEX', 'REGEX'):
+                for pattern in flow.trigger_keywords:
+                    try:
+                        if re.search(pattern, message_text, re.IGNORECASE):
+                            matched_flow = flow
+                            break
+                    except re.error:
+                        pass
+            elif flow.trigger_type == BotFlow.TRIGGER_NEW_CHAT:
+                msg_count = Message.objects.filter(conversation__contact=contact).count()
+                if msg_count <= 1:
+                    matched_flow = flow
+                    break
             if matched_flow:
                 break
 
@@ -252,23 +281,30 @@ def process_bot_flow_step(contact: Contact, message_text: str):
         return False
 
     conv, _ = Conversation.objects.get_or_create(contact=contact, defaults={'status': Conversation.STATUS_OPEN})
+    client = WhatsAppCloudAPIClient()
 
-    node_type = current_node.get('type', 'message')
+    node_type = str(current_node.get('type', 'message')).lower()
     response_text = ""
     next_node_id = None
+    interactive_type = None
+    interactive_payload = None
 
-    if node_type == 'message':
-        response_text = current_node.get('content', '')
+    if node_type in ['message', 'send_message']:
+        response_text = replace_template_variables(current_node.get('content', ''), contact)
         for edge in flow.edges:
             if edge.get('source') == current_node['id']:
                 next_node_id = edge.get('target')
                 break
+        if not next_node_id:
+            next_node_id = current_node.get('target_node_id')
 
-    elif node_type == 'menu':
-        options = current_node.get('options', [])
+    elif node_type in ['menu', 'interactive_buttons']:
+        options = current_node.get('buttons') or current_node.get('options', [])
         matched_option = None
         for opt in options:
-            if opt.get('value', '').lower() in clean_text or opt.get('label', '').lower() in clean_text:
+            val = str(opt.get('value') or opt.get('id') or '').lower()
+            label = str(opt.get('label') or opt.get('title') or '').lower()
+            if (val and val in clean_text) or (label and label in clean_text):
                 matched_option = opt
                 break
 
@@ -276,31 +312,188 @@ def process_bot_flow_step(contact: Contact, message_text: str):
             next_node_id = matched_option.get('target_node_id')
             next_node = nodes_map.get(next_node_id)
             if next_node:
-                response_text = next_node.get('content', f"You selected {matched_option.get('label')}")
+                response_text = replace_template_variables(next_node.get('content', f"You selected {matched_option.get('label') or matched_option.get('title')}"), contact)
         else:
-            labels = "\n".join([f"• {opt.get('label')}" for opt in options])
-            response_text = f"{current_node.get('content', 'Please choose an option:')}\n\n{labels}"
+            prompt = replace_template_variables(current_node.get('content') or current_node.get('body', 'Please choose an option:'), contact)
+            if node_type == 'interactive_buttons' or current_node.get('buttons'):
+                interactive_type = 'button'
+                interactive_payload = options
+                response_text = prompt
+            else:
+                labels = "\n".join([f"• {opt.get('label') or opt.get('title')}" for opt in options])
+                response_text = f"{prompt}\n\n{labels}"
             next_node_id = current_node['id']
 
+    elif node_type == 'interactive_list':
+        sections = current_node.get('sections', [])
+        rows = []
+        for s in sections:
+            rows.extend(s.get('rows', []))
+        if not rows and current_node.get('rows'):
+            rows = current_node.get('rows', [])
+
+        matched_row = None
+        for r in rows:
+            r_id = str(r.get('id', '')).lower()
+            r_title = str(r.get('title', '')).lower()
+            if (r_id and r_id in clean_text) or (r_title and r_title in clean_text):
+                matched_row = r
+                break
+
+        if matched_row:
+            next_node_id = matched_row.get('target_node_id')
+            next_node = nodes_map.get(next_node_id)
+            if next_node:
+                response_text = replace_template_variables(next_node.get('content', f"You selected {matched_row.get('title')}"), contact)
+        else:
+            interactive_type = 'list'
+            interactive_payload = sections or [{'title': 'Options', 'rows': rows}]
+            response_text = replace_template_variables(current_node.get('content') or current_node.get('body', 'Please choose from the menu:'), contact)
+            next_node_id = current_node['id']
+
+    elif node_type == 'user_input':
+        val_type = current_node.get('validation_type', 'text').lower()
+        is_valid = True
+        if val_type == 'email':
+            is_valid = bool(re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', clean_text))
+        elif val_type == 'phone':
+            is_valid = bool(re.match(r'^\+?[0-9\s\-]{7,20}$', clean_text))
+        elif val_type == 'number':
+            try:
+                float(clean_text.replace(',', ''))
+                is_valid = True
+            except ValueError:
+                is_valid = False
+        elif val_type == 'text':
+            is_valid = bool(clean_text)
+
+        if not is_valid:
+            response_text = current_node.get('validation_error', f"Please enter a valid {val_type}.")
+            next_node_id = current_node['id']
+        else:
+            attr_key = current_node.get('attribute_name') or current_node.get('save_to_attribute') or 'input_value'
+            if not contact.custom_attributes:
+                contact.custom_attributes = {}
+            contact.custom_attributes[attr_key] = message_text.strip()
+            if not contact.metadata:
+                contact.metadata = {}
+            contact.metadata[attr_key] = message_text.strip()
+            contact.save(update_fields=['custom_attributes', 'metadata'])
+
+            for edge in flow.edges:
+                if edge.get('source') == current_node['id']:
+                    next_node_id = edge.get('target')
+                    break
+            if not next_node_id:
+                next_node_id = current_node.get('target_node_id')
+
+            next_node = nodes_map.get(next_node_id)
+            if next_node:
+                response_text = replace_template_variables(next_node.get('content', f"Received your {attr_key}: {message_text.strip()}"), contact)
+
+    elif node_type == 'condition':
+        field = current_node.get('field', 'text').lower()
+        op = current_node.get('operator', 'equals').lower()
+        compare_val = str(current_node.get('value', '')).strip().lower()
+
+        if field in ['text', 'message', 'message_text']:
+            actual_val = clean_text
+        else:
+            attrs = {**(contact.metadata or {}), **(getattr(contact, 'custom_attributes', {}) or {})}
+            actual_val = str(attrs.get(field, getattr(contact, field, ''))).strip().lower()
+
+        cond_result = False
+        if op == 'equals':
+            cond_result = (actual_val == compare_val)
+        elif op == 'not_equals':
+            cond_result = (actual_val != compare_val)
+        elif op == 'contains':
+            cond_result = (compare_val in actual_val)
+        elif op == 'starts_with':
+            cond_result = actual_val.startswith(compare_val)
+        elif op == 'greater_than':
+            try:
+                cond_result = float(actual_val) > float(compare_val)
+            except (ValueError, TypeError):
+                cond_result = False
+        elif op == 'less_than':
+            try:
+                cond_result = float(actual_val) < float(compare_val)
+            except (ValueError, TypeError):
+                cond_result = False
+        elif op == 'is_set':
+            cond_result = bool(actual_val)
+
+        if cond_result:
+            next_node_id = current_node.get('target_node_id_yes') or current_node.get('branch_a_target')
+            if not next_node_id:
+                for e in flow.edges:
+                    if e.get('source') == current_node['id'] and str(e.get('label', '')).lower() in ['yes', 'true', 'branch a']:
+                        next_node_id = e.get('target')
+                        break
+        else:
+            next_node_id = current_node.get('target_node_id_no') or current_node.get('branch_b_target')
+            if not next_node_id:
+                for e in flow.edges:
+                    if e.get('source') == current_node['id'] and str(e.get('label', '')).lower() in ['no', 'false', 'branch b']:
+                        next_node_id = e.get('target')
+                        break
+
+        next_node = nodes_map.get(next_node_id)
+        if next_node:
+            response_text = replace_template_variables(next_node.get('content', ''), contact)
+
+    elif node_type == 'webhook_action':
+        url = current_node.get('url', '')
+        logger.info(f"Triggering webhook action {current_node.get('id')} -> {url}")
+        for edge in flow.edges:
+            if edge.get('source') == current_node['id']:
+                next_node_id = edge.get('target')
+                break
+        if not next_node_id:
+            next_node_id = current_node.get('target_node_id')
+        next_node = nodes_map.get(next_node_id)
+        if next_node:
+            response_text = replace_template_variables(next_node.get('content', ''), contact)
+
+    elif node_type == 'delay':
+        for edge in flow.edges:
+            if edge.get('source') == current_node['id']:
+                next_node_id = edge.get('target')
+                break
+        if not next_node_id:
+            next_node_id = current_node.get('target_node_id')
+        next_node = nodes_map.get(next_node_id)
+        if next_node:
+            response_text = replace_template_variables(next_node.get('content', ''), contact)
+
     elif node_type == 'handoff':
-        response_text = current_node.get('content', "Connecting you to a human agent right now. Please hold on.")
-        conv.status = Conversation.STATUS_OPEN
+        response_text = replace_template_variables(current_node.get('content', "Connecting you to a human agent right now. Please hold on."), contact)
+        conv.status = current_node.get('escalate_status', Conversation.STATUS_OPEN)
         conv.save(update_fields=['status'])
         session.is_completed = True
         session.save(update_fields=['is_completed'])
         next_node_id = None
 
     if response_text:
-        client = WhatsAppCloudAPIClient()
-        res = client.send_text_message(recipient_phone=contact.phone_number, text_body=response_text)
         meta_id = None
+        msg_type = Message.TYPE_TEXT
+        if interactive_type == 'button':
+            res = client.send_interactive_buttons(recipient_phone=contact.phone_number, body_text=response_text, buttons=interactive_payload or [])
+            msg_type = Message.TYPE_INTERACTIVE
+        elif interactive_type == 'list':
+            res = client.send_interactive_list(recipient_phone=contact.phone_number, body_text=response_text, button_text=current_node.get('button_text', 'View Menu'), sections=interactive_payload or [])
+            msg_type = Message.TYPE_INTERACTIVE
+        else:
+            res = client.send_text_message(recipient_phone=contact.phone_number, text_body=response_text)
+
         if 'messages' in res and len(res['messages']) > 0:
             meta_id = res['messages'][0].get('id')
 
         Message.objects.create(
             conversation=conv,
             direction=Message.DIR_OUTBOUND,
-            message_type=Message.TYPE_TEXT,
+            message_type=msg_type,
             content=f"[Bot Flow: {flow.name}] {response_text}",
             status=Message.STATUS_SENT,
             meta_message_id=meta_id,

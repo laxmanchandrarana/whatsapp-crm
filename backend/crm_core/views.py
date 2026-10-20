@@ -1,3 +1,6 @@
+import re
+import csv
+import io
 import json
 import logging
 from datetime import timedelta
@@ -21,7 +24,8 @@ from .models import (
     BroadcastCampaign,
     CampaignRecipient,
     BotFlow,
-    BotSession
+    BotSession,
+    WhatsAppGroup
 )
 from .serializers import (
     ContactSerializer,
@@ -33,7 +37,8 @@ from .serializers import (
     CannedResponseSerializer,
     BroadcastCampaignSerializer,
     BotFlowSerializer,
-    BotSessionSerializer
+    BotSessionSerializer,
+    WhatsAppGroupSerializer
 )
 from .signature import validate_hub_signature
 from .tasks import (
@@ -466,8 +471,11 @@ class BotFlowViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='test-run')
     def test_run(self, request, pk=None):
         flow = self.get_object()
-        message_text = request.data.get('message', '').strip().lower()
+        raw_message = request.data.get('message', '').strip()
+        message_text = raw_message.lower()
         current_node_id = request.data.get('current_node_id', 'start')
+        simulated_contact = request.data.get('contact', {}) or {}
+        custom_attributes = simulated_contact.get('custom_attributes', {}) or {}
 
         nodes_map = {n['id']: n for n in flow.nodes}
         current_node = nodes_map.get(current_node_id) or (flow.nodes[0] if flow.nodes else None)
@@ -475,35 +483,192 @@ class BotFlowViewSet(viewsets.ModelViewSet):
         if not current_node:
             return Response({'error': 'Flow has no nodes'}, status=status.HTTP_400_BAD_REQUEST)
 
-        node_type = current_node.get('type', 'message')
+        def render_tpl(txt):
+            if not txt:
+                return ""
+            r = str(txt)
+            r = r.replace("{{name}}", simulated_contact.get('name', 'Alex Johnson'))
+            r = r.replace("{{phone}}", simulated_contact.get('phone', '+14155550199'))
+            for k, v in custom_attributes.items():
+                r = r.replace(f"{{{{{k}}}}}", str(v))
+                r = r.replace(f"{{{{custom_attributes.{k}}}}}", str(v))
+            return r
+
+        node_type = str(current_node.get('type', 'message')).lower()
         response_text = ""
         next_node_id = None
+        interactive_type = None
+        interactive_payload = None
+        updated_attributes = {}
 
-        if node_type == 'message':
-            response_text = current_node.get('content', '')
+        if node_type in ['message', 'send_message']:
+            response_text = render_tpl(current_node.get('content', ''))
             for edge in flow.edges:
                 if edge.get('source') == current_node['id']:
                     next_node_id = edge.get('target')
                     break
-        elif node_type == 'menu':
-            options = current_node.get('options', [])
-            matched = next((opt for opt in options if opt.get('value', '').lower() in message_text or opt.get('label', '').lower() in message_text), None)
+            if not next_node_id:
+                next_node_id = current_node.get('target_node_id')
+
+        elif node_type in ['menu', 'interactive_buttons']:
+            options = current_node.get('buttons') or current_node.get('options', [])
+            matched = next(
+                (opt for opt in options if 
+                 (str(opt.get('value', '')).lower() and str(opt.get('value', '')).lower() in message_text) or 
+                 (str(opt.get('id', '')).lower() and str(opt.get('id', '')).lower() in message_text) or 
+                 (str(opt.get('label', '')).lower() and str(opt.get('label', '')).lower() in message_text) or 
+                 (str(opt.get('title', '')).lower() and str(opt.get('title', '')).lower() in message_text)),
+                None
+            )
             if matched:
                 next_node_id = matched.get('target_node_id')
                 next_node = nodes_map.get(next_node_id)
-                response_text = next_node.get('content', f"Choice selected: {matched.get('label')}") if next_node else "Processed choice."
+                response_text = render_tpl(next_node.get('content', f"Choice selected: {matched.get('label') or matched.get('title')}")) if next_node else "Processed choice."
             else:
-                labels = "\n".join([f"• {opt.get('label')}" for opt in options])
-                response_text = f"{current_node.get('content', 'Please select an option:')}\n\n{labels}"
+                interactive_type = 'button' if node_type == 'interactive_buttons' or current_node.get('buttons') else None
+                interactive_payload = options
+                if interactive_type == 'button':
+                    response_text = render_tpl(current_node.get('content') or current_node.get('body', 'Please select an option:'))
+                else:
+                    labels = "\n".join([f"• {opt.get('label') or opt.get('title')}" for opt in options])
+                    response_text = f"{render_tpl(current_node.get('content', 'Please select an option:'))}\n\n{labels}"
                 next_node_id = current_node['id']
+
+        elif node_type == 'interactive_list':
+            sections = current_node.get('sections', [])
+            rows = []
+            for s in sections:
+                rows.extend(s.get('rows', []))
+            if not rows and current_node.get('rows'):
+                rows = current_node.get('rows', [])
+
+            matched = next(
+                (r for r in rows if 
+                 (str(r.get('id', '')).lower() and str(r.get('id', '')).lower() in message_text) or 
+                 (str(r.get('title', '')).lower() and str(r.get('title', '')).lower() in message_text)),
+                None
+            )
+            if matched:
+                next_node_id = matched.get('target_node_id')
+                next_node = nodes_map.get(next_node_id)
+                response_text = render_tpl(next_node.get('content', f"Selected: {matched.get('title')}")) if next_node else "Processed selection."
+            else:
+                interactive_type = 'list'
+                interactive_payload = sections or [{'title': 'Options', 'rows': rows}]
+                response_text = render_tpl(current_node.get('content') or current_node.get('body', 'Please select from list:'))
+                next_node_id = current_node['id']
+
+        elif node_type == 'user_input':
+            val_type = current_node.get('validation_type', 'text').lower()
+            is_valid = True
+            if val_type == 'email':
+                is_valid = bool(re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', raw_message))
+            elif val_type == 'phone':
+                is_valid = bool(re.match(r'^\+?[0-9\s\-]{7,20}$', raw_message))
+            elif val_type == 'number':
+                try:
+                    float(raw_message.replace(',', ''))
+                    is_valid = True
+                except ValueError:
+                    is_valid = False
+            elif val_type == 'text':
+                is_valid = bool(raw_message)
+
+            if not is_valid:
+                response_text = current_node.get('validation_error', f"Please enter a valid {val_type}.")
+                next_node_id = current_node['id']
+            else:
+                attr_name = current_node.get('attribute_name') or current_node.get('save_to_attribute') or 'input_value'
+                updated_attributes[attr_name] = raw_message
+                for edge in flow.edges:
+                    if edge.get('source') == current_node['id']:
+                        next_node_id = edge.get('target')
+                        break
+                if not next_node_id:
+                    next_node_id = current_node.get('target_node_id')
+                next_node = nodes_map.get(next_node_id)
+                if next_node:
+                    response_text = render_tpl(next_node.get('content', f"Saved {attr_name}: {raw_message}"))
+
+        elif node_type == 'condition':
+            field = current_node.get('field', 'text').lower()
+            op = current_node.get('operator', 'equals').lower()
+            val = str(current_node.get('value', '')).strip().lower()
+            actual = custom_attributes.get(field, raw_message).strip().lower()
+
+            res = False
+            if op == 'equals':
+                res = (actual == val)
+            elif op == 'not_equals':
+                res = (actual != val)
+            elif op == 'contains':
+                res = (val in actual)
+            elif op == 'starts_with':
+                res = actual.startswith(val)
+            elif op == 'greater_than':
+                try:
+                    res = float(actual) > float(val)
+                except ValueError:
+                    res = False
+            elif op == 'less_than':
+                try:
+                    res = float(actual) < float(val)
+                except ValueError:
+                    res = False
+            else:
+                res = bool(actual)
+
+            if res:
+                next_node_id = current_node.get('target_node_id_yes') or current_node.get('branch_a_target')
+                if not next_node_id:
+                    for e in flow.edges:
+                        if e.get('source') == current_node['id'] and str(e.get('label', '')).lower() in ['yes', 'true', 'branch a']:
+                            next_node_id = e.get('target')
+                            break
+            else:
+                next_node_id = current_node.get('target_node_id_no') or current_node.get('branch_b_target')
+                if not next_node_id:
+                    for e in flow.edges:
+                        if e.get('source') == current_node['id'] and str(e.get('label', '')).lower() in ['no', 'false', 'branch b']:
+                            next_node_id = e.get('target')
+                            break
+
+            next_node = nodes_map.get(next_node_id)
+            if next_node:
+                response_text = render_tpl(next_node.get('content', ''))
+
+        elif node_type == 'webhook_action':
+            url = current_node.get('url', '')
+            for edge in flow.edges:
+                if edge.get('source') == current_node['id']:
+                    next_node_id = edge.get('target')
+                    break
+            if not next_node_id:
+                next_node_id = current_node.get('target_node_id')
+            next_node = nodes_map.get(next_node_id)
+            response_text = render_tpl(next_node.get('content', f"Webhook {url} triggered successfully.")) if next_node else f"Webhook triggered: {url}"
+
+        elif node_type == 'delay':
+            for edge in flow.edges:
+                if edge.get('source') == current_node['id']:
+                    next_node_id = edge.get('target')
+                    break
+            if not next_node_id:
+                next_node_id = current_node.get('target_node_id')
+            next_node = nodes_map.get(next_node_id)
+            response_text = render_tpl(next_node.get('content', 'Continuing after delay...')) if next_node else "Delay completed."
+
         elif node_type == 'handoff':
-            response_text = current_node.get('content', "Handoff to human agent initiated.")
+            response_text = render_tpl(current_node.get('content', "Handoff to human agent initiated."))
             next_node_id = None
 
         return Response({
             'current_node': current_node,
             'response_text': response_text,
-            'next_node_id': next_node_id
+            'next_node_id': next_node_id,
+            'interactive_type': interactive_type,
+            'interactive_payload': interactive_payload,
+            'updated_attributes': updated_attributes
         })
 
 
@@ -514,9 +679,105 @@ class ContactViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         search = self.request.query_params.get('search')
+        tag = self.request.query_params.get('tag')
         if search:
-            qs = qs.filter(Q(name__icontains=search) | Q(phone_number__icontains=search))
+            qs = qs.filter(Q(name__icontains=search) | Q(phone_number__icontains=search) | Q(email__icontains=search))
+        if tag:
+            qs = qs.filter(tags__icontains=tag)
         return qs
+
+    @action(detail=False, methods=['post'], url_path='import-csv')
+    def import_csv(self, request):
+        csv_text = request.data.get('csv_text', '')
+        contacts_list = request.data.get('contacts', [])
+
+        if csv_text and not contacts_list:
+            reader = csv.DictReader(io.StringIO(csv_text.strip()))
+            for row in reader:
+                c_data = {
+                    'name': row.get('name') or row.get('Name') or '',
+                    'phone_number': row.get('phone') or row.get('Phone') or row.get('phone_number') or '',
+                    'email': row.get('email') or row.get('Email') or '',
+                    'tags': [t.strip() for t in (row.get('tags') or row.get('Tags') or '').split(',') if t.strip()],
+                    'custom_attributes': {}
+                }
+                known_cols = {'name', 'phone', 'phone_number', 'email', 'tags'}
+                for k, v in row.items():
+                    if k.lower() not in known_cols and v:
+                        c_data['custom_attributes'][k.lower()] = v
+                if c_data['phone_number']:
+                    contacts_list.append(c_data)
+
+        if not contacts_list:
+            return Response({'error': 'No valid contacts provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_count = 0
+        updated_count = 0
+
+        for item in contacts_list:
+            phone = item.get('phone_number') or item.get('phone')
+            if not phone:
+                continue
+            phone = str(phone).strip()
+            name = item.get('name', '')
+            email = item.get('email', '')
+            tags = item.get('tags', [])
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(',') if t.strip()]
+            custom_attrs = item.get('custom_attributes', {}) or item.get('metadata', {})
+
+            contact, created = Contact.objects.get_or_create(
+                phone_number=phone,
+                defaults={
+                    'name': name,
+                    'email': email,
+                    'tags': tags,
+                    'custom_attributes': custom_attrs,
+                    'metadata': custom_attrs
+                }
+            )
+            if created:
+                created_count += 1
+            else:
+                if name:
+                    contact.name = name
+                if email:
+                    contact.email = email
+                if tags:
+                    contact.tags = list(set(contact.tags + tags))
+                if custom_attrs:
+                    contact.custom_attributes = {**(contact.custom_attributes or {}), **custom_attrs}
+                    contact.metadata = {**(contact.metadata or {}), **custom_attrs}
+                contact.save()
+                updated_count += 1
+
+        return Response({
+            'status': 'success',
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'total_processed': len(contacts_list)
+        })
+
+
+class WhatsAppGroupViewSet(viewsets.ModelViewSet):
+    queryset = WhatsAppGroup.objects.all()
+    serializer_class = WhatsAppGroupSerializer
+
+    @action(detail=True, methods=['post'], url_path='send-message')
+    def send_message(self, request, pk=None):
+        group = self.get_object()
+        message_text = request.data.get('message', '').strip()
+        if not message_text:
+            return Response({'error': 'Message text cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.info(f"Dispatched group broadcast to '{group.name}' ({group.group_id}): '{message_text}'")
+        return Response({
+            'status': 'sent',
+            'group_id': group.group_id,
+            'group_name': group.name,
+            'message': message_text,
+            'participants_count': group.participants_count
+        })
 
 
 class AnalyticsView(APIView):
@@ -606,6 +867,7 @@ class StatsView(APIView):
             'read_messages': Message.objects.filter(status=Message.STATUS_READ).count(),
             'total_contacts': Contact.objects.count(),
             'total_templates': MessageTemplate.objects.count(),
+            'total_groups': WhatsAppGroup.objects.count(),
         })
 
 

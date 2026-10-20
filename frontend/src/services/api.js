@@ -247,11 +247,78 @@ export const api = {
     return res.json();
   },
 
-  // Contacts
-  getContacts: async (search = '') => {
-    const url = search ? `${API_BASE}/contacts/?search=${encodeURIComponent(search)}` : `${API_BASE}/contacts/`;
-    const res = await fetch(url);
+  // Contacts & CRM
+  getContacts: async (search = '', tag = '') => {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (tag && tag !== 'ALL') params.append('tag', tag);
+    const res = await fetch(`${API_BASE}/contacts/?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch contacts');
+    return res.json();
+  },
+
+  createContact: async (payload) => {
+    const res = await fetch(`${API_BASE}/contacts/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to create contact');
+    return res.json();
+  },
+
+  updateContact: async (id, payload) => {
+    const res = await fetch(`${API_BASE}/contacts/${id}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to update contact');
+    return res.json();
+  },
+
+  deleteContact: async (id) => {
+    const res = await fetch(`${API_BASE}/contacts/${id}/`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to delete contact');
+    return true;
+  },
+
+  importContactsCSV: async (csvText, contacts = []) => {
+    const res = await fetch(`${API_BASE}/contacts/import-csv/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv_text: csvText, contacts })
+    });
+    if (!res.ok) throw new Error('Failed to import contacts');
+    return res.json();
+  },
+
+  // WhatsApp Groups
+  getGroups: async () => {
+    const res = await fetch(`${API_BASE}/groups/`);
+    if (!res.ok) throw new Error('Failed to fetch WhatsApp groups');
+    return res.json();
+  },
+
+  createGroup: async (payload) => {
+    const res = await fetch(`${API_BASE}/groups/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to create group');
+    return res.json();
+  },
+
+  sendGroupMessage: async (groupId, message) => {
+    const res = await fetch(`${API_BASE}/groups/${groupId}/send-message/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    });
+    if (!res.ok) throw new Error('Failed to send group message');
     return res.json();
   },
 

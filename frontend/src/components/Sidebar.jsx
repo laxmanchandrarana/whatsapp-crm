@@ -6,7 +6,8 @@ import {
   Sparkles, 
   Send,
   Bot,
-  BarChart3
+  BarChart3,
+  Users
 } from 'lucide-react';
 
 export default function Sidebar({ 
@@ -17,7 +18,7 @@ export default function Sidebar({
   onOpenTemplates
 }) {
   return (
-    <aside className="w-16 bg-[#111b21] flex flex-col items-center py-4 border-r border-[#222e35] select-none z-20 shrink-0">
+    <aside className="w-16 bg-[#111b21] hidden md:flex flex-col items-center py-4 border-r border-[#222e35] select-none z-20 shrink-0">
       {/* Brand Icon */}
       <div 
         onClick={() => setActiveView('chats')}
@@ -86,7 +87,16 @@ export default function Sidebar({
           <Bot className="w-5 h-5" />
         </button>
 
-        {/* 5. Analytics & SLA Dashboard */}
+                {/* 5. Contacts & CRM */}
+        <button
+          onClick={() => setActiveView('contacts')}
+          title="DoubleTick Contacts & WhatsApp Groups"
+          className={`relative p-3 rounded-xl transition-all duration-150 ${activeView === "contacts" ? "bg-[#202c33] text-teal-400 shadow-inner" : "text-gray-400 hover:text-gray-200 hover:bg-[#1a252d]"}`}
+        >
+          <Users className="w-5 h-5" />
+        </button>
+
+        {/* 6. Analytics & SLA Dashboard */}
         <button
           onClick={() => setActiveView('analytics')}
           title="Analytics & SLA Leaderboard"

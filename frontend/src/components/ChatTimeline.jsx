@@ -14,7 +14,8 @@ import {
   Phone,
   Bookmark,
   StickyNote,
-  ChevronDown
+  ChevronDown,
+  ChevronLeft
 } from 'lucide-react';
 import CannedRepliesModal from './CannedRepliesModal';
 import { api } from '../services/api';
@@ -27,7 +28,8 @@ export default function ChatTimeline({
   onOpenApprovalDrawer,
   onApproveMessage,
   onRejectMessage,
-  onConversationUpdated
+  onConversationUpdated,
+  onBackToConversations
 }) {
   const [inputText, setInputText] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -117,6 +119,15 @@ export default function ChatTimeline({
       {/* 1. Header */}
       <div className="h-16 px-6 border-b border-[#222e35] flex items-center justify-between bg-[#111b21] shrink-0">
         <div className="flex items-center gap-3">
+          {onBackToConversations && (
+            <button
+              onClick={onBackToConversations}
+              className="md:hidden p-1.5 rounded-lg bg-[#182229] hover:bg-[#202c33] text-teal-400 border border-[#2a3942] transition mr-1"
+              title="Back to conversations"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-teal-700 to-teal-500 text-white font-bold flex items-center justify-center text-sm shadow">
             {contact.name ? contact.name.charAt(0) : '#'}
           </div>

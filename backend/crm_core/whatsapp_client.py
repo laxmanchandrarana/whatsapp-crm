@@ -82,6 +82,94 @@ class WhatsAppCloudAPIClient:
         res.raise_for_status()
         return res.json()
 
+    def send_interactive_buttons(self, recipient_phone: str, body_text: str, buttons: list, header_text: str = None, footer_text: str = None):
+        """
+        Sends WhatsApp Cloud API interactive quick reply / CTA buttons (up to 3 buttons).
+        buttons: list of dicts with 'id'/'value' and 'title'/'label'
+        """
+        if self.simulate:
+            simulated_id = f"wamid.HBgL{uuid.uuid4().hex[:12].upper()}"
+            btn_titles = [b.get('title') or b.get('label') or b.get('text', '') for b in buttons]
+            logger.info(f"[SIMULATED INTERACTIVE BUTTONS] Sent to {recipient_phone}: '{body_text}' buttons={btn_titles} -> {simulated_id}")
+            return {
+                "messaging_product": "whatsapp",
+                "simulated": True,
+                "contacts": [{"input": recipient_phone, "wa_id": recipient_phone.replace('+', '')}],
+                "messages": [{"id": simulated_id}]
+            }
+
+        action_buttons = []
+        for idx, btn in enumerate(buttons[:3]):
+            btn_id = str(btn.get('id') or btn.get('value') or f"btn_{idx}")
+            title = str(btn.get('title') or btn.get('label') or btn.get('text') or f"Option {idx+1}")[:20]
+            action_buttons.append({
+                "type": "reply",
+                "reply": {
+                    "id": btn_id,
+                    "title": title
+                }
+            })
+
+        interactive = {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {"buttons": action_buttons}
+        }
+        if header_text:
+            interactive["header"] = {"type": "text", "text": header_text}
+        if footer_text:
+            interactive["footer"] = {"text": footer_text}
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": recipient_phone,
+            "type": "interactive",
+            "interactive": interactive
+        }
+        res = requests.post(self.messages_url, headers=self._headers(), json=payload, timeout=10)
+        res.raise_for_status()
+        return res.json()
+
+    def send_interactive_list(self, recipient_phone: str, body_text: str, button_text: str = "Select Option", sections: list = None, header_text: str = None, footer_text: str = None):
+        """
+        Sends WhatsApp Cloud API interactive list menu with section titles and selectable rows.
+        sections: list of dicts with 'title' and 'rows' (each row having 'id', 'title', optional 'description')
+        """
+        if self.simulate:
+            simulated_id = f"wamid.HBgL{uuid.uuid4().hex[:12].upper()}"
+            logger.info(f"[SIMULATED INTERACTIVE LIST] Sent to {recipient_phone}: '{body_text}' button='{button_text}' -> {simulated_id}")
+            return {
+                "messaging_product": "whatsapp",
+                "simulated": True,
+                "contacts": [{"input": recipient_phone, "wa_id": recipient_phone.replace('+', '')}],
+                "messages": [{"id": simulated_id}]
+            }
+
+        interactive = {
+            "type": "list",
+            "body": {"text": body_text},
+            "action": {
+                "button": button_text[:20],
+                "sections": sections or []
+            }
+        }
+        if header_text:
+            interactive["header"] = {"type": "text", "text": header_text}
+        if footer_text:
+            interactive["footer"] = {"text": footer_text}
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": recipient_phone,
+            "type": "interactive",
+            "interactive": interactive
+        }
+        res = requests.post(self.messages_url, headers=self._headers(), json=payload, timeout=10)
+        res.raise_for_status()
+        return res.json()
+
     def create_template(self, name: str, category: str, language: str, components: list):
         """Submit a new template for Meta WhatsApp Business Account approval"""
         if self.simulate:

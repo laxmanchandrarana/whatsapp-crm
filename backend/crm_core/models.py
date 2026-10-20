@@ -7,6 +7,7 @@ class Contact(models.Model):
     email = models.EmailField(blank=True, default='')
     tags = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
+    custom_attributes = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -15,6 +16,23 @@ class Contact(models.Model):
 
     def __str__(self):
         return f"{self.name or 'Unknown'} ({self.phone_number})"
+
+
+class WhatsAppGroup(models.Model):
+    """WhatsApp Business Group / Community Support"""
+    name = models.CharField(max_length=255)
+    group_id = models.CharField(max_length=128, unique=True, db_index=True)
+    description = models.TextField(blank=True, default='')
+    participants_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.participants_count} members)"
 
 
 class Conversation(models.Model):
@@ -278,11 +296,13 @@ class BotFlow(models.Model):
     TRIGGER_KEYWORD = 'KEYWORD'
     TRIGGER_NEW_CHAT = 'NEW_CHAT'
     TRIGGER_ALWAYS = 'ALWAYS'
+    TRIGGER_REGEX = 'REGEX'
 
     TRIGGER_CHOICES = [
         (TRIGGER_KEYWORD, 'Keyword Match'),
         (TRIGGER_NEW_CHAT, 'New Conversation'),
         (TRIGGER_ALWAYS, 'Every Inbound Message'),
+        (TRIGGER_REGEX, 'Regex Pattern'),
     ]
 
     name = models.CharField(max_length=150)
